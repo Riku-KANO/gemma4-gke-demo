@@ -1,0 +1,44 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash scripts/*)",
+      "Bash(kubectl get:*)",
+      "Bash(kubectl describe:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(kubectl rollout status:*)",
+      "Bash(kubectl config current-context)",
+      "Bash(kubectl config get-contexts:*)",
+      "Bash(gcloud auth list:*)",
+      "Bash(gcloud config get-value:*)",
+      "Bash(gcloud config list:*)",
+      "Bash(gcloud compute regions describe:*)",
+      "Bash(gcloud compute networks subnets describe:*)",
+      "Bash(gcloud container clusters describe:*)",
+      "Bash(gcloud container clusters list:*)",
+      "Bash(gcloud container node-pools describe:*)",
+      "Bash(gcloud container node-pools list:*)",
+      "Bash(gcloud container get-server-config:*)",
+      "Bash(gcloud artifacts repositories describe:*)",
+      "Bash(gcloud artifacts repositories list:*)",
+      "Bash(gcloud compute forwarding-rules list:*)",
+      "Bash(gcloud services list:*)",
+      "Bash(jq:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(ls:*)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Bash(cat .env)",
+      "Bash(head .env)",
+      "Bash(tail .env)",
+      "Bash(less .env)",
+      "Bash(more .env)",
+      "Bash(gcloud auth login:*)",
+      "Bash(gcloud auth revoke:*)"
+    ]
+  }
+}

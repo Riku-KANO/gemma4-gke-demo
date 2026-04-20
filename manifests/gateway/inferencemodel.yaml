@@ -1,0 +1,9 @@
+apiVersion: inference.networking.gke.io/v1alpha1
+kind: InferenceModel
+metadata:
+  name: gemma-model
+spec:
+  modelName: google/gemma-4-4b-it
+  criticality: Standard
+  poolRef:
+    name: gemma-pool
