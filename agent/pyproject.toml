@@ -1,0 +1,14 @@
+[project]
+name = "gemma-demo-agent"
+version = "0.1.0"
+description = "ADK agent that talks to self-hosted Gemma via the GKE Inference Gateway"
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk",
+    "litellm",
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[tool.uv]
+package = false

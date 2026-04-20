@@ -72,7 +72,22 @@ manifests/
   gateway/      InferencePool, InferenceModel, Gateway, HTTPRoute
   agent/        ADK agent Deployment (templated) + Service
 agent/          ADK Python app: main.py (FastAPI), gemma_demo_agent/agent.py (LlmAgent + tools)
+                pyproject.toml + uv.lock managed with uv; no requirements.txt
 ```
+
+## Python / agent dev
+
+Dependency management uses **uv** (not pip). The Dockerfile installs the uv binary and runs `uv sync --frozen`. To work on the agent locally:
+
+```bash
+cd agent
+uv sync                         # create .venv from uv.lock
+uv run python main.py           # run the FastAPI app (needs MODEL_ID and GATEWAY_URL env)
+uv add <package>                # add a dep — updates pyproject.toml and uv.lock
+uv lock --upgrade               # bump all deps to latest compatible
+```
+
+Prefer latest versions; don't pin floors unless there's a concrete reason.
 
 ## Known unknowns to verify before running
 
