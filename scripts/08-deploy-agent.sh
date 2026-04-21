@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Deploy the ADK agent. We render the image ref and Gateway URL into the
-# deployment manifest at apply time so the templates stay declarative while
-# still reflecting real cluster state.
+# Deploy the ADK agent. The image ref, Gateway URL, and both model IDs are
+# rendered into the manifest at apply time.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
@@ -13,6 +12,8 @@ gw_ip="$(kubectl get gateway inference-gw \
 
 gateway_url="http://${gw_ip}/v1"
 log "Using GATEWAY_URL=$gateway_url"
+log "Using MODEL_ID_SMALL=$MODEL_ID_SMALL"
+log "Using MODEL_ID_LARGE=$MODEL_ID_LARGE"
 log "Using agent image=$AGENT_IMAGE"
 
 tmp_deploy="$(mktemp)"
@@ -20,7 +21,8 @@ trap 'rm -f "$tmp_deploy"' EXIT
 
 sed -e "s|__AGENT_IMAGE__|${AGENT_IMAGE}|g" \
     -e "s|__GATEWAY_URL__|${gateway_url}|g" \
-    -e "s|google/gemma-4-4b-it|${MODEL_ID}|g" \
+    -e "s|__MODEL_ID_SMALL__|${MODEL_ID_SMALL}|g" \
+    -e "s|__MODEL_ID_LARGE__|${MODEL_ID_LARGE}|g" \
     "$ROOT_DIR/manifests/agent/deployment.yaml" > "$tmp_deploy"
 
 kubectl apply -f "$tmp_deploy"

@@ -1,0 +1,12 @@
+apiVersion: inference.networking.x-k8s.io/v1alpha2
+kind: InferenceObjective
+metadata:
+  name: gemma-large-default
+spec:
+  # Higher priority than the small pool so, if the cluster ever shares
+  # resources with other workloads, expert consultations win scheduling.
+  # (Demo-only signal; priority is interpreted by the EPP scorers.)
+  priority: 10
+  poolRef:
+    group: inference.networking.k8s.io
+    name: gemma-large

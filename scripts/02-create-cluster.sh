@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Create a GKE Standard cluster with a dedicated L4 GPU node pool and a
-# proxy-only subnet required by the regional external managed gateway class.
+# Create a GKE Standard cluster with an L4 GPU node pool sized for:
+#   - 1 replica of the small Gemma model
+#   - LARGE_REPLICAS replicas of the large Gemma model
+# Plus the proxy-only subnet required by the regional external managed
+# gateway class.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
@@ -41,7 +44,7 @@ else
   log "Cluster already exists."
 fi
 
-log "Creating GPU node pool '$NODE_POOL_NAME' (L4)..."
+log "Creating GPU node pool '$NODE_POOL_NAME' (L4 x $GPU_NODE_COUNT)..."
 if ! gcloud container node-pools describe "$NODE_POOL_NAME" \
       --cluster="$CLUSTER_NAME" --region="$REGION" --project="$PROJECT_ID" \
       >/dev/null 2>&1; then
@@ -52,12 +55,20 @@ if ! gcloud container node-pools describe "$NODE_POOL_NAME" \
     --node-locations="$ZONE" \
     --machine-type=g2-standard-8 \
     --accelerator="type=nvidia-l4,count=1,gpu-driver-version=latest" \
-    --num-nodes=1 \
+    --num-nodes="$GPU_NODE_COUNT" \
     --node-taints=nvidia.com/gpu=present:NoSchedule \
     --disk-type=pd-balanced \
     --disk-size=100
 else
   log "GPU node pool already exists."
+  current_count="$(gcloud container node-pools describe "$NODE_POOL_NAME" \
+    --cluster="$CLUSTER_NAME" --region="$REGION" --project="$PROJECT_ID" \
+    --format='value(initialNodeCount)')"
+  if (( current_count < GPU_NODE_COUNT )); then
+    warn "GPU pool has $current_count nodes but demo needs $GPU_NODE_COUNT."
+    warn "Resize manually: gcloud container clusters resize $CLUSTER_NAME \\"
+    warn "  --region=$REGION --node-pool=$NODE_POOL_NAME --num-nodes=$GPU_NODE_COUNT"
+  fi
 fi
 
 log "Fetching kubectl credentials..."

@@ -1,26 +1,33 @@
 #!/usr/bin/env bash
-# Deploy the Gemma vLLM server. The MODEL_ID from .env is patched into the
-# manifest at apply time so the repo default and your chosen model stay in sync.
+# Deploy both Gemma models (small orchestrator + large expert). Model IDs
+# and replica counts are patched into the manifests at apply time so the
+# canonical source of truth is .env, not the YAML.
 
 set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
-tmp_deploy="$(mktemp)"
-trap 'rm -f "$tmp_deploy"' EXIT
+tmp_small="$(mktemp)"
+tmp_large="$(mktemp)"
+trap 'rm -f "$tmp_small" "$tmp_large"' EXIT
 
-log "Rendering gemma Deployment with MODEL_ID=$MODEL_ID..."
-sed "s|google/gemma-4-4b-it|${MODEL_ID}|g" \
-  "$ROOT_DIR/manifests/gemma/deployment.yaml" > "$tmp_deploy"
+log "Rendering small deployment (model=$MODEL_ID_SMALL)..."
+sed "s|__MODEL_ID_SMALL__|${MODEL_ID_SMALL}|g" \
+  "$ROOT_DIR/manifests/gemma/deployment-small.yaml" > "$tmp_small"
 
-kubectl apply -f "$tmp_deploy"
-kubectl apply -f "$ROOT_DIR/manifests/gemma/service.yaml"
+log "Rendering large deployment (model=$MODEL_ID_LARGE, replicas=$LARGE_REPLICAS)..."
+sed -e "s|__MODEL_ID_LARGE__|${MODEL_ID_LARGE}|g" \
+    -e "s|replicas: 2|replicas: ${LARGE_REPLICAS}|g" \
+  "$ROOT_DIR/manifests/gemma/deployment-large.yaml" > "$tmp_large"
 
-log "Waiting for gemma-vllm pod to be scheduled..."
-kubectl wait --for=condition=PodScheduled --timeout=120s \
-  pod -l app=gemma-vllm || true
+kubectl apply -f "$tmp_small"
+kubectl apply -f "$tmp_large"
+kubectl apply -f "$ROOT_DIR/manifests/gemma/service-small.yaml"
+kubectl apply -f "$ROOT_DIR/manifests/gemma/service-large.yaml"
 
-log "Deployment applied. First-time model download can take 10-20 minutes."
-log "Follow progress with:"
-log "  kubectl logs -l app=gemma-vllm -f"
+log "Deployments applied. First-time model downloads can take 10-20 min each."
+log "Follow progress:"
+log "  kubectl logs -l app=gemma-small -f      # small / orchestrator"
+log "  kubectl logs -l app=gemma-large -f      # large / expert (2+ pods)"
 log ""
-log "When ready, proceed: bash scripts/06-deploy-gateway.sh"
+log "When both Deployments report Available, proceed:"
+log "  bash scripts/06-deploy-gateway.sh"

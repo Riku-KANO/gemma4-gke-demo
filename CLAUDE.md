@@ -4,36 +4,53 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-End-to-end **learning / verification** demo wiring three technologies on GKE:
+End-to-end **learning / verification** demo of three GKE Inference Gateway
+features, wired through a single two-model Gemma stack:
 
-1. **Gemma** served by **vLLM** on an L4 GPU node
-2. **GKE Inference Gateway** — `InferencePool` + `InferenceModel` + `Gateway` + `HTTPRoute` routing into the Gemma Service
-3. An **ADK** (Google Agent Development Kit) Python agent with tool calling that talks to Gemma through the Inference Gateway's OpenAI-compatible endpoint via `LiteLlm`
+1. **Multi-model body-based routing** — one Gateway endpoint, two Gemma
+   models (small + large), dispatched by the OpenAI `model` field in the
+   request body.
+2. **Prefix-cache-aware routing** — the large pool runs 2+ replicas; the
+   EPP's prefix-cache scorer pins requests sharing a system prompt to the
+   same replica so vLLM's `--enable-prefix-caching` actually hits.
+3. **Tool-calling ADK agent** — the small model is a fast orchestrator;
+   hard questions are forwarded to the large model via a `consult_expert`
+   tool that round-trips back through the Gateway.
 
-Not production-hardened. Default IaC approach for this repo is **plain `gcloud` + `kubectl` scripts with raw YAML** — do not introduce Terraform, Helm, or Kustomize.
+Not production-hardened. Default IaC approach for this repo is **plain
+`gcloud` + `kubectl` scripts with raw YAML** — do not introduce Terraform,
+Helm, or Kustomize in the runtime path. (Some gateway YAMLs are `helm
+template` output checked in as plain manifests — regenerate recipes are at
+the top of each file.)
 
 ## Common commands
 
-All workflow is driven by numbered scripts in `scripts/`. They source `scripts/_lib.sh`, which requires a populated `.env` (copy from `.env.example`). Each script prints the next command at the end.
+All workflow is driven by numbered scripts in `scripts/`. They source
+`scripts/_lib.sh`, which requires a populated `.env` (copy from
+`.env.example`). Each script prints the next command at the end.
 
 ```bash
 bash scripts/00-prereqs.sh              # preflight + manual-verification checklist
 bash scripts/01-enable-apis.sh          # APIs + Artifact Registry repo
-bash scripts/02-create-cluster.sh       # GKE Standard + L4 node pool + proxy-only subnet (~8 min)
-bash scripts/03-install-gateway-crds.sh # upstream Gateway API + Inference Extension CRDs
+bash scripts/02-create-cluster.sh       # GKE Standard + L4 node pool + proxy-only subnet (~10 min)
+bash scripts/03-install-gateway-crds.sh # upstream Gateway API + Inference Extension v1.5.0 CRDs
 bash scripts/04-create-secrets.sh       # kube Secret for HF_TOKEN
-bash scripts/05-deploy-gemma.sh         # vLLM Deployment/Service; first-start model pull is 10–20 min
-bash scripts/06-deploy-gateway.sh       # InferencePool/Model + Gateway + HTTPRoute; waits for Gateway IP
+bash scripts/05-deploy-gemma.sh         # two vLLM Deployments (small + large); first-start pull is 10–20 min each
+bash scripts/06-deploy-gateway.sh       # Gateway + BBR + 2 pools (EPP/HTTPRoute/policies) + InferenceObjectives
 bash scripts/07-build-agent.sh          # Cloud Build → Artifact Registry
 bash scripts/08-deploy-agent.sh         # patches image + Gateway URL into manifest, applies, waits for LB
-bash scripts/09-verify.sh               # Stage 1: Gemma via Gateway. Stage 2: agent tool calls.
+bash scripts/09-verify.sh               # 3 stages: multi-model, prefix cache, agent orchestration
 bash scripts/99-teardown.sh             # deletes cluster, AR repo, proxy subnet
 ```
 
 Observing the long-running pieces:
 
 ```bash
-kubectl logs -l app=gemma-vllm -f                 # model download / vLLM startup
+kubectl logs -l app=gemma-small -f                # small-model vLLM startup
+kubectl logs -l app=gemma-large -f                # large-model vLLM startup
+kubectl logs -l app=body-based-router -f          # BBR header-injection decisions
+kubectl logs deploy/gemma-small-epp -f            # small-pool endpoint picker
+kubectl logs deploy/gemma-large-epp -f            # large-pool endpoint picker
 kubectl describe gateway inference-gw             # if Gateway IP never appears
 kubectl get svc agent                             # agent LoadBalancer IP
 ```
@@ -45,31 +62,78 @@ There is no test suite, linter, or build outside those scripts.
 Traffic path at runtime:
 
 ```
-client ──HTTP──▶ agent Service (LoadBalancer, :8080)
-                 └─ ADK FastAPI app (agent/main.py) hosts the gemma_demo_agent app
-                    └─ LlmAgent uses LiteLlm(openai/$MODEL_ID, api_base=$GATEWAY_URL)
-                       └─ Inference Gateway (gke-l7-regional-external-managed, :80)
-                          └─ HTTPRoute /v1/* ──▶ InferencePool `gemma-pool`
-                             └─ endpoint picker extension ──▶ Pods matching app=gemma-vllm
-                                └─ vLLM OpenAI server :8000 serving $MODEL_ID
+client ─HTTP─▶ agent Service (LoadBalancer, :8080)
+               └─ ADK FastAPI app (agent/main.py) hosts gemma_demo_agent
+                  ├─ orchestrator:  LiteLlm(openai/$MODEL_ID_SMALL, api_base=$GATEWAY_URL)
+                  └─ consult_expert: httpx.post($GATEWAY_URL/chat/completions, model=$MODEL_ID_LARGE)
+                     ▼
+                  Inference Gateway (gke-l7-regional-external-managed, :80)
+                     ▼
+                  BBR extension (GCPRoutingExtension, ext-proc on Service body-based-router:9004)
+                     │ reads body.model, sets header X-Gateway-Base-Model-Name
+                     ▼
+                  two HTTPRoutes (one per pool) match that header (Exact)
+                     ├─ header=$MODEL_ID_SMALL ──▶ InferencePool gemma-small
+                     │                              └─ EPP gemma-small-epp (grpc ext-proc :9002)
+                     │                                 └─ Pods with label app=gemma-small
+                     └─ header=$MODEL_ID_LARGE ──▶ InferencePool gemma-large
+                                                    └─ EPP gemma-large-epp (prefix-cache scorer)
+                                                       └─ Pods with label app=gemma-large
 ```
 
 Key wiring points, because they span multiple files:
 
-- **`MODEL_ID` must stay consistent in three places:** `.env`, `manifests/gemma/deployment.yaml`, `manifests/gateway/inferencemodel.yaml`. The `05-` and `06-` scripts patch the manifests via `sed` replacing the literal placeholder `google/gemma-4-4b-it` at apply time. If you edit the manifests by hand, update all three.
-- **`__AGENT_IMAGE__` and `__GATEWAY_URL__`** placeholders in `manifests/agent/deployment.yaml` are filled in by `08-deploy-agent.sh` — the template itself is not directly appliable.
-- **InferencePool → Pods** is label-based (`selector: app=gemma-vllm`); the `InferencePool` is a `backendRef` of the `HTTPRoute`, not a Service. The endpoint picker extension (`gke-managed-endpoint-picker`) handles load-balancing decisions.
-- **Proxy-only subnet** (`proxy-only-${REGION}`, `10.129.0.0/23`) is required by the regional external managed Gateway class and is created by `02-create-cluster.sh`.
-- **GPU scheduling:** node pool carries taint `nvidia.com/gpu=present:NoSchedule`; the Gemma Deployment tolerates it and selects `cloud.google.com/gke-accelerator=nvidia-l4`.
-- **Agent ↔ Gateway coupling:** the agent reads `MODEL_ID` and `GATEWAY_URL` from env. `LiteLlm(model=f"openai/{MODEL_ID}", api_key="not-needed")` speaks OpenAI chat-completions against the Gateway; the Gateway's HTTPRoute matches `/v1/` and routes into vLLM, which serves that same model name.
+- **`MODEL_ID_SMALL` / `MODEL_ID_LARGE`** appear in these places:
+  - `.env` (source of truth)
+  - `manifests/gemma/deployment-{small,large}.yaml` (vLLM `--model` flag
+    and `MODEL_ID` env)
+  - `manifests/gateway/pool-{small,large}.yaml` (HTTPRoute's
+    `X-Gateway-Base-Model-Name` header match — carries the placeholder
+    `__MODEL_ID_SMALL__` / `__MODEL_ID_LARGE__`)
+  - `manifests/agent/deployment.yaml` (env passed into the ADK container)
+
+  The numbered scripts patch placeholders via `sed` at apply time so the
+  YAML stays declarative. Edit the source-of-truth `.env`, not the
+  rendered values.
+
+- **`__AGENT_IMAGE__` and `__GATEWAY_URL__`** placeholders in
+  `manifests/agent/deployment.yaml` are filled by `08-deploy-agent.sh`.
+
+- **BBR is the new model-to-pool dispatcher.** Without BBR the header
+  never gets set, HTTPRoute header matches fail, and requests are
+  rejected. BBR is wired to the Gateway via a `GCPRoutingExtension`
+  (`networking.gke.io/v1`) — a GKE-specific CRD.
+
+- **Each InferencePool has its OWN endpoint picker (EPP) Deployment.**
+  This replaces the older `gke-managed-endpoint-picker` pattern. The
+  per-pool EPP (`inference.networking.k8s.io/v1` → `endpointPickerRef`)
+  runs the queue/kv-cache/prefix-cache scorers; prefix-cache-aware
+  routing lives in the EPP, not in the Gateway.
+
+- **`InferenceObjective` (`v1alpha2`)** only carries request priority. It
+  is NOT a replacement for the deprecated `InferenceModel.modelName` —
+  body-based dispatch is BBR's job. The objectives are a nice-to-have;
+  the demo works without them.
+
+- **Proxy-only subnet** (`proxy-only-${REGION}`, `10.129.0.0/23`) is
+  required by the regional external managed Gateway class and is
+  created by `02-create-cluster.sh`.
+
+- **GPU scheduling:** node pool carries taint
+  `nvidia.com/gpu=present:NoSchedule`; the Gemma Deployments tolerate
+  it and select `cloud.google.com/gke-accelerator=nvidia-l4`.
 
 Layout:
 
 ```
 scripts/        numbered bash scripts; _lib.sh loads .env and defines log/warn/die
 manifests/
-  gemma/        vLLM Deployment + Service
-  gateway/      InferencePool, InferenceModel, Gateway, HTTPRoute
+  gemma/        deployment-{small,large} + service-{small,large}
+  gateway/      gateway.yaml
+                bbr.yaml                         (BBR Deployment/Service/RBAC + GCPRoutingExtension)
+                pool-{small,large}.yaml         (EPP + InferencePool + HTTPRoute + GCP policies;
+                                                 each is helm-rendered — regen recipe at top of file)
+                inferenceobjective-{small,large}.yaml  (priority hints)
   agent/        ADK agent Deployment (templated) + Service
 agent/          ADK Python app: main.py (FastAPI), gemma_demo_agent/agent.py (LlmAgent + tools)
                 pyproject.toml + uv.lock managed with uv; no requirements.txt
@@ -77,26 +141,41 @@ agent/          ADK Python app: main.py (FastAPI), gemma_demo_agent/agent.py (Ll
 
 ## Python / agent dev
 
-Dependency management uses **uv** (not pip). The Dockerfile installs the uv binary and runs `uv sync --frozen`. To work on the agent locally:
+Dependency management uses **uv** (not pip). The Dockerfile installs the uv
+binary and runs `uv sync --frozen`. To work on the agent locally:
 
 ```bash
 cd agent
 uv sync                         # create .venv from uv.lock
-uv run python main.py           # run the FastAPI app (needs MODEL_ID and GATEWAY_URL env)
-uv add <package>                # add a dep — updates pyproject.toml and uv.lock
+uv run python main.py           # needs MODEL_ID_SMALL, MODEL_ID_LARGE, GATEWAY_URL env
+uv add <package>                # adds a dep — updates pyproject.toml and uv.lock
 uv lock --upgrade               # bump all deps to latest compatible
 ```
 
 Prefer latest versions; don't pin floors unless there's a concrete reason.
 
+## Regenerating gateway YAML from the upstream Helm charts
+
+`manifests/gateway/bbr.yaml` and `manifests/gateway/pool-{small,large}.yaml`
+are `helm template` output of the upstream charts, with the Gateway name
+patched from `inference-gateway` to `inference-gw`. Each file contains the
+exact command in a header comment. Regenerate when bumping the extension
+version (`v0` Helm chart today → tracks `INFERENCE_EXT_VERSION` in
+`scripts/03-install-gateway-crds.sh`).
+
 ## Known unknowns to verify before running
 
-These cannot be checked by the scripts; `00-prereqs.sh` prints them as a checklist:
+`scripts/00-prereqs.sh` prints a full checklist. Current placeholders:
 
-1. Exact Gemma 4 HF model ID — `google/gemma-4-4b-it` is a placeholder.
-2. Correct vLLM `--tool-call-parser` for Gemma 4 — currently `hermes` as a guess.
-3. Gateway API Inference Extension release tag (`v0.3.0` pinned in `03-install-gateway-crds.sh`).
-4. L4 GPU quota in the target region (fall back to `us-central1` if `asia-northeast1` is denied).
-5. GKE rapid channel offers ≥ 1.32.3 in the region.
+1. `MODEL_ID_SMALL` and `MODEL_ID_LARGE` — Gemma 4 HF repo names are
+   placeholders; verify on huggingface.co/google.
+2. vLLM `--tool-call-parser` — `hermes` is a guess for Gemma 4.
+3. Gateway API Inference Extension version — `v1.5.0` CRDs and `v0`
+   staging Helm chart (EPP/BBR images are `:main`).
+4. L4 GPU quota ≥ 3 in chosen region (`asia-northeast1` default;
+   `us-central1` fallback).
+5. GKE rapid channel version: need ≥ 1.32.3; ideally ≥ 1.34.0-gke.1626000
+   so InferencePool v1 CRD is GKE-managed.
 
-When you change one of these, propagate it consistently (see the three-places `MODEL_ID` note above).
+When you change an entry that affects multiple files, propagate it
+through all the places called out in the "Key wiring points" section.

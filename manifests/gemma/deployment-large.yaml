@@ -1,18 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gemma-vllm
+  name: gemma-large
   labels:
-    app: gemma-vllm
+    app: gemma-large
+    role: expert
 spec:
-  replicas: 1
+  # replicas and model ID are patched at apply time (scripts/05-deploy-gemma.sh).
+  # 2+ replicas are required for GKE Inference Gateway's prefix-cache-aware
+  # routing to show any real value over a plain Service.
+  replicas: 2
   selector:
     matchLabels:
-      app: gemma-vllm
+      app: gemma-large
   template:
     metadata:
       labels:
-        app: gemma-vllm
+        app: gemma-large
+        role: expert
     spec:
       nodeSelector:
         cloud.google.com/gke-accelerator: nvidia-l4
@@ -21,21 +26,34 @@ spec:
           operator: Equal
           value: present
           effect: NoSchedule
+      # Spread replicas across distinct GPU nodes so prefix-cache-aware routing
+      # has a reason to pick one over the other.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: gemma-large
       containers:
         - name: vllm
           image: vllm/vllm-openai:latest
           imagePullPolicy: IfNotPresent
           args:
             - --model=$(MODEL_ID)
+            - --served-model-name=$(MODEL_ID)
             - --host=0.0.0.0
             - --port=8000
             - --enable-auto-tool-choice
             - --tool-call-parser=hermes
             - --max-model-len=8192
             - --gpu-memory-utilization=0.90
+            # Enable prefix cache so the Inference Gateway's prefix-aware
+            # routing can actually land cache hits on the same replica.
+            - --enable-prefix-caching
           env:
             - name: MODEL_ID
-              value: "google/gemma-4-4b-it"
+              value: "__MODEL_ID_LARGE__"
             - name: HUGGING_FACE_HUB_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -48,28 +66,15 @@ spec:
             limits:
               nvidia.com/gpu: 1
           readinessProbe:
-            httpGet:
-              path: /health
-              port: 8000
+            httpGet: { path: /health, port: 8000 }
             initialDelaySeconds: 300
             periodSeconds: 10
             failureThreshold: 60
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8000
-            initialDelaySeconds: 600
-            periodSeconds: 30
           volumeMounts:
-            - name: dshm
-              mountPath: /dev/shm
-            - name: model-cache
-              mountPath: /root/.cache/huggingface
+            - { name: dshm, mountPath: /dev/shm }
+            - { name: model-cache, mountPath: /root/.cache/huggingface }
       volumes:
         - name: dshm
-          emptyDir:
-            medium: Memory
-            sizeLimit: 8Gi
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }
         - name: model-cache
-          emptyDir:
-            sizeLimit: 50Gi
+          emptyDir: { sizeLimit: 50Gi }

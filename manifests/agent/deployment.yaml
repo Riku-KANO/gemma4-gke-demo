@@ -19,8 +19,10 @@ spec:
           image: __AGENT_IMAGE__
           imagePullPolicy: Always
           env:
-            - name: MODEL_ID
-              value: "google/gemma-4-4b-it"
+            - name: MODEL_ID_SMALL
+              value: "__MODEL_ID_SMALL__"
+            - name: MODEL_ID_LARGE
+              value: "__MODEL_ID_LARGE__"
             - name: GATEWAY_URL
               value: "__GATEWAY_URL__"
             - name: PORT
@@ -29,21 +31,13 @@ spec:
             - containerPort: 8080
               name: http
           readinessProbe:
-            httpGet:
-              path: /list-apps
-              port: 8080
+            httpGet: { path: /list-apps, port: 8080 }
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /list-apps
-              port: 8080
+            httpGet: { path: /list-apps, port: 8080 }
             initialDelaySeconds: 30
             periodSeconds: 30
           resources:
-            requests:
-              cpu: "250m"
-              memory: "512Mi"
-            limits:
-              cpu: "1000m"
-              memory: "1Gi"
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits:   { cpu: "1000m", memory: "1Gi" }

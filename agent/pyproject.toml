@@ -8,6 +8,7 @@ dependencies = [
     "litellm",
     "fastapi",
     "uvicorn[standard]",
+    "httpx",
 ]
 
 [tool.uv]
