@@ -78,8 +78,11 @@ spec:
       serviceAccountName: body-based-router-body-based-router
       containers:
       - name: bbr
-        image: us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/bbr:main
-        imagePullPolicy: Always
+        # Pinned to the v1.5.0 conformance build (same digest as the chart's
+        # :main at the v1.5.0 release commit). No plain `v1.5.0` tag exists
+        # for BBR — only EPP gets that. Bump together with EPP when upgrading.
+        image: us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/bbr:v20260418-conformancev1.5.0
+        imagePullPolicy: IfNotPresent
         args:
         - "--streaming"
         # Pass additional flags via the bbr.flags field in values.yaml.

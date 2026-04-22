@@ -61,14 +61,13 @@ if ! gcloud container node-pools describe "$NODE_POOL_NAME" \
     --disk-size=100
 else
   log "GPU node pool already exists."
-  current_count="$(gcloud container node-pools describe "$NODE_POOL_NAME" \
-    --cluster="$CLUSTER_NAME" --region="$REGION" --project="$PROJECT_ID" \
-    --format='value(initialNodeCount)')"
-  if (( current_count < GPU_NODE_COUNT )); then
-    warn "GPU pool has $current_count nodes but demo needs $GPU_NODE_COUNT."
-    warn "Resize manually: gcloud container clusters resize $CLUSTER_NAME \\"
-    warn "  --region=$REGION --node-pool=$NODE_POOL_NAME --num-nodes=$GPU_NODE_COUNT"
-  fi
+  # We intentionally don't try to verify the current size from gcloud here:
+  # `initialNodeCount` reflects creation-time size, not current size after a
+  # resize, and walking the MIGs for regional pools adds noise. If you
+  # reused an existing pool, confirm capacity with:
+  #   kubectl get nodes -l cloud.google.com/gke-nodepool=$NODE_POOL_NAME
+  warn "Verify the pool has at least $GPU_NODE_COUNT L4 nodes once kubectl is set up below:"
+  warn "  kubectl get nodes -l cloud.google.com/gke-nodepool=$NODE_POOL_NAME"
 fi
 
 log "Fetching kubectl credentials..."

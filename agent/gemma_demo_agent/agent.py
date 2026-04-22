@@ -1,4 +1,6 @@
+import ast
 import datetime
+import operator
 import os
 
 import httpx
@@ -23,18 +25,43 @@ def get_current_time(timezone: str = "UTC") -> dict:
     }
 
 
+_CALC_BINOPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv,
+    ast.Mod: operator.mod,
+}
+_CALC_UNARYOPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+
+
+def _calc_eval(node: ast.AST) -> float:
+    # Walk a parsed expression tree, permitting only numeric literals and the
+    # four basic binary ops plus unary +/-. Exponentiation (`**`) is
+    # intentionally excluded because model-generated input could otherwise
+    # burn CPU on things like `9**9**9`.
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _CALC_UNARYOPS:
+        return _CALC_UNARYOPS[type(node.op)](_calc_eval(node.operand))
+    if isinstance(node, ast.BinOp) and type(node.op) in _CALC_BINOPS:
+        return _CALC_BINOPS[type(node.op)](_calc_eval(node.left), _calc_eval(node.right))
+    raise ValueError(f"disallowed syntax: {type(node).__name__}")
+
+
 def calculator(expression: str) -> dict:
     """Evaluate a basic arithmetic expression.
 
     Args:
-        expression: Arithmetic expression using digits and + - * / ( ) . only.
+        expression: Arithmetic expression using digits and + - * / % // ( ) . only.
+            Exponentiation is not supported (it's an easy CPU DoS vector
+            when an LLM is generating the input).
     """
-    allowed = set("0123456789+-*/(). ")
-    if not set(expression) <= allowed:
-        return {"error": "invalid characters; only digits and + - * / ( ) . are allowed"}
     try:
-        value = eval(expression, {"__builtins__": {}}, {})
-    except Exception as exc:
+        tree = ast.parse(expression, mode="eval")
+        value = _calc_eval(tree.body)
+    except (SyntaxError, ValueError, ZeroDivisionError, OverflowError) as exc:
         return {"error": f"evaluation failed: {exc}"}
     return {"expression": expression, "result": value}
 

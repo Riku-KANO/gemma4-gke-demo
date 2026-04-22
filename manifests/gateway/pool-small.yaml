@@ -170,8 +170,9 @@ spec:
       terminationGracePeriodSeconds: 130
       containers:
         - name: epp
-          image: us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/epp:main
-          imagePullPolicy: Always
+          # Pinned to the v1.5.0 release tag (both BBR and EPP must match).
+          image: us-central1-docker.pkg.dev/k8s-staging-images/gateway-api-inference-extension/epp:v1.5.0
+          imagePullPolicy: IfNotPresent
           args:
               - --pool-name
               - gemma-small

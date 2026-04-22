@@ -5,7 +5,10 @@ metadata:
   labels:
     app: agent
 spec:
-  type: LoadBalancer
+  # ClusterIP (not LoadBalancer) — the agent has no auth and the GPU it talks
+  # to is expensive. Do not expose it externally. To reach it from your
+  # workstation use `kubectl port-forward svc/agent 8080:80`.
+  type: ClusterIP
   selector:
     app: agent
   ports:

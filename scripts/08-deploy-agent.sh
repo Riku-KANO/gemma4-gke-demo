@@ -31,18 +31,7 @@ kubectl apply -f "$ROOT_DIR/manifests/agent/service.yaml"
 log "Waiting for agent rollout..."
 kubectl rollout status deployment/agent --timeout=300s
 
-log "Waiting for LoadBalancer IP..."
-for _ in $(seq 1 30); do
-  lb_ip="$(kubectl get svc agent \
-           -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-  [[ -n "$lb_ip" ]] && break
-  sleep 10
-done
-
-if [[ -z "${lb_ip:-}" ]]; then
-  warn "Agent LoadBalancer IP not yet ready. Check: kubectl get svc agent"
-else
-  log "Agent LoadBalancer IP: $lb_ip"
-fi
-
-log "Next: bash scripts/09-verify.sh"
+log "Agent is exposed as ClusterIP (on purpose — no auth)."
+log "To reach it from your workstation:"
+log "  kubectl port-forward svc/agent 8080:80"
+log "Next: bash scripts/09-verify.sh (starts a port-forward for you)"

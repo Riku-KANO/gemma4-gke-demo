@@ -58,23 +58,45 @@ done
 log ""
 log "Expected: requests 2-4 are faster than request 1 (prefix cache hits),"
 log "and hits concentrate on one large-model pod, not both."
-log "Inspect:"
-log "  kubectl exec -it deploy/gemma-large -- curl -s localhost:8000/metrics \\"
-log "    | grep -E 'prefix_cache|num_requests'"
+log ""
+log "Per-pod prefix-cache metrics (the concentration should be visible in"
+log "vllm:prefix_cache_queries / vllm:prefix_cache_hits — one pod should have"
+log "a noticeably higher hit ratio than the others):"
+
+# Non-interactive exec, one pod at a time, so we can see per-replica counters.
+while IFS= read -r pod; do
+  [[ -n "$pod" ]] || continue
+  log ""
+  log "  --- $pod ---"
+  kubectl exec "$pod" -c vllm -- \
+    sh -c "curl -s localhost:8000/metrics | grep -E '^vllm:(prefix_cache|num_requests)' || true"
+done < <(kubectl get pods -l app=gemma-large -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n')
 
 hr "Stage 3/3: ADK agent with tool calling + expert escalation"
 
-lb_ip="$(kubectl get svc agent \
-         -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)"
-[[ -n "$lb_ip" ]] || die "Agent LoadBalancer IP not assigned."
-log "Agent: http://$lb_ip"
+# Agent Service is ClusterIP (no auth → not publicly exposed). Forward a
+# local port for this stage, then tear it down on exit.
+log "Starting kubectl port-forward svc/agent 18080:80 in the background..."
+kubectl port-forward svc/agent 18080:80 >/dev/null 2>&1 &
+pf_pid=$!
+trap 'kill $pf_pid 2>/dev/null || true' EXIT
+
+# Wait until the forwarder is accepting connections.
+for _ in $(seq 1 20); do
+  if curl -fsS -o /dev/null -m 1 "http://127.0.0.1:18080/list-apps"; then
+    break
+  fi
+  sleep 1
+done
+agent_url="http://127.0.0.1:18080"
+log "Agent: $agent_url (via port-forward)"
 
 log "Creating session..."
-curl -fsS -X POST "http://${lb_ip}/apps/gemma_demo_agent/users/u1/sessions/s1" \
+curl -fsS -X POST "${agent_url}/apps/gemma_demo_agent/users/u1/sessions/s1" \
   -H "Content-Type: application/json" -d '{}' >/dev/null || true
 
 log "Easy question → small model should answer directly via tools:"
-curl -fsS -X POST "http://${lb_ip}/run" \
+curl -fsS -X POST "${agent_url}/run" \
   -H "Content-Type: application/json" \
   -d '{
     "app_name":"gemma_demo_agent","user_id":"u1","session_id":"s1",
@@ -82,7 +104,7 @@ curl -fsS -X POST "http://${lb_ip}/run" \
   | jq '[.[] | {author, tool: (.content.parts[]?.functionCall.name // empty)}] | unique'
 
 log "Hard question → small model should call consult_expert (→ large model):"
-curl -fsS -X POST "http://${lb_ip}/run" \
+curl -fsS -X POST "${agent_url}/run" \
   -H "Content-Type: application/json" \
   -d '{
     "app_name":"gemma_demo_agent","user_id":"u1","session_id":"s1",

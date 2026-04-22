@@ -25,7 +25,7 @@ spec:
           effect: NoSchedule
       containers:
         - name: vllm
-          image: vllm/vllm-openai:latest
+          image: vllm/vllm-openai:v0.19.1-ubuntu2404
           imagePullPolicy: IfNotPresent
           args:
             - --model=$(MODEL_ID)

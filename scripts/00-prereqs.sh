@@ -58,12 +58,19 @@ cat <<EOF
  3. vLLM --tool-call-parser for Gemma 4: the manifests use "hermes"
     as a placeholder. Check vLLM docs for the Gemma-4-specific parser.
 
- 4. GKE Inference Extension CRD release: 03-install-gateway-crds.sh
-    pins v0.3.0. Update to latest from
-    https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases
+ 4. GKE Inference Extension release: 03-install-gateway-crds.sh is the
+    source of truth for the pinned version. Check against the upstream
+    release list and bump together with the BBR/EPP image tags in
+    manifests/gateway/{bbr,pool-*}.yaml.
+      https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases
 
  5. GKE rapid channel must offer 1.32.3+:
       gcloud container get-server-config --region=$REGION
+
+ 6. Security posture: the Gateway is an external LB and the agent has no
+    auth. The agent Service is ClusterIP — reach it via
+    \`kubectl port-forward svc/agent 8080:80\`. Do NOT run this demo in
+    a shared GCP project.
 ==============================================================
 
 EOF
