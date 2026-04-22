@@ -106,7 +106,8 @@ manifests/
             GCPBackendPolicy + HealthCheckPolicy, one file per pool —
             rendered from the upstream inferencepool Helm chart),
             inferenceobjective-{small,large}.yaml (priority hints)
-  agent/    Deployment + LoadBalancer Service
+  agent/    Deployment + ClusterIP Service (no auth → not externally
+            exposed; reach it via `kubectl port-forward svc/agent 8080:80`)
 agent/      ADK app; Dockerfile uses uv + pyproject.toml + uv.lock
 ```
 
@@ -122,9 +123,11 @@ file contains a regenerate recipe at the top.
    repos on huggingface.co/google — placeholders follow the Gemma 2/3
    naming pattern.
 2. Correct vLLM `--tool-call-parser` for Gemma 4 (currently `hermes`).
-3. Gateway API Inference Extension release tag
-   (`03-install-gateway-crds.sh` pins `v1.5.0`; Helm chart version is `v0`
-   staging — the BBR and EPP images are `:main` tags).
+3. Gateway API Inference Extension release tag: `03-install-gateway-crds.sh`
+   pins the CRDs to `v1.5.0`, and `manifests/gateway/{bbr,pool-*}.yaml`
+   pin BBR (`v20260418-conformancev1.5.0`) and EPP (`v1.5.0`). Bump both
+   together when upgrading. The Helm chart is `v0` staging, so if you
+   regenerate the rendered YAML, re-pin the image tags after.
 4. L4 GPU quota ≥ 3 in chosen region.
 5. GKE rapid channel version ≥ 1.32.3 (and ideally 1.34.0-gke.1626000+
    so InferencePool v1 CRD is GKE-managed).

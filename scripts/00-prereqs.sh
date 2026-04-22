@@ -6,7 +6,7 @@ set -euo pipefail
 source "$(dirname "$0")/_lib.sh"
 
 log "Checking required CLIs..."
-for bin in gcloud kubectl docker jq; do
+for bin in gcloud kubectl docker jq curl; do
   command -v "$bin" >/dev/null 2>&1 || die "Missing required CLI: $bin"
 done
 
