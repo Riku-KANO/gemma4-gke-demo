@@ -70,7 +70,7 @@ client ─HTTP─▶ agent Service (LoadBalancer, :8080)
                   Inference Gateway (gke-l7-regional-external-managed, :80)
                      ▼
                   BBR extension (GCPRoutingExtension, ext-proc on Service body-based-router:9004)
-                     │ reads body.model, sets header X-Gateway-Base-Model-Name
+                     │ reads body.model, sets header X-Gateway-Model-Name
                      ▼
                   two HTTPRoutes (one per pool) match that header (Exact)
                      ├─ header=$MODEL_ID_SMALL ──▶ InferencePool gemma-small
@@ -88,7 +88,7 @@ Key wiring points, because they span multiple files:
   - `manifests/gemma/deployment-{small,large}.yaml` (vLLM `--model` flag
     and `MODEL_ID` env)
   - `manifests/gateway/pool-{small,large}.yaml` (HTTPRoute's
-    `X-Gateway-Base-Model-Name` header match — carries the placeholder
+    `X-Gateway-Model-Name` header match — carries the placeholder
     `__MODEL_ID_SMALL__` / `__MODEL_ID_LARGE__`)
   - `manifests/agent/deployment.yaml` (env passed into the ADK container)
 
@@ -169,7 +169,8 @@ version (`v0` Helm chart today → tracks `INFERENCE_EXT_VERSION` in
 
 1. `MODEL_ID_SMALL` and `MODEL_ID_LARGE` — Gemma 4 HF repo names are
    placeholders; verify on huggingface.co/google.
-2. vLLM `--tool-call-parser` — `hermes` is a guess for Gemma 4.
+2. vLLM `--tool-call-parser=gemma4` + `--chat-template=examples/tool_chat_template_gemma4.jinja`
+   (verified against vLLM main: `vllm/tool_parsers/gemma4_tool_parser.py`).
 3. Gateway API Inference Extension version — `v1.5.0` CRDs and `v0`
    staging Helm chart (EPP/BBR images are `:main`).
 4. L4 GPU quota ≥ 3 in chosen region (`asia-northeast1` default;

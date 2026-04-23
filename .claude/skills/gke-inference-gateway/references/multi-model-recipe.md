@@ -12,7 +12,7 @@ The pattern scales: for N models, duplicate the "per-pool" block N times.
 ```
              ┌─────────────────────────────────────────────────────┐
   client ──▶ │  Gateway (gke-l7-regional-external-managed)         │
-             │  ├─ BBR (reads body.model → X-Gateway-Base-Model-Name)  │
+             │  ├─ BBR (reads body.model → X-Gateway-Model-Name)  │
              │  └─ two HTTPRoutes matching on that header              │
              └───────────┬──────────────────┬────────────────────────┘
                          │ header=MODEL_A   │ header=MODEL_B
@@ -29,7 +29,7 @@ Request flow:
 1. Client POSTs `/v1/chat/completions` with `{"model": "model-a-id", …}`
 2. Gateway accepts the connection
 3. BBR (attached as ext-proc via `GCPRoutingExtension`) reads the body,
-   extracts `model`, sets header `X-Gateway-Base-Model-Name: model-a-id`
+   extracts `model`, sets header `X-Gateway-Model-Name: model-a-id`
 4. HTTPRoute for pool A matches the header and forwards to
    `InferencePool model-a`
 5. The pool's EPP picks the best pod (queue depth, KV-cache, prefix cache)
@@ -157,7 +157,7 @@ helm template model-a \
 
 `<model-id-clients-use>` is the exact string clients will put in the
 OpenAI `model` field. BBR reads it from the body and sets it as the
-`X-Gateway-Base-Model-Name` header; the rendered HTTPRoute matches it
+`X-Gateway-Model-Name` header; the rendered HTTPRoute matches it
 with `type: Exact`. If the value mismatches by even one character, the
 request will not route.
 
@@ -219,7 +219,7 @@ A single render produces:
       - path: {type: PathPrefix, value: /}
         headers:
         - type: Exact
-          name: X-Gateway-Base-Model-Name
+          name: X-Gateway-Model-Name
           value: <model-id-clients-use>
   ```
 - **GCPBackendPolicy** (GKE): `timeoutSec: 300`, logging enabled, targets the pool
@@ -286,7 +286,7 @@ If model-a traffic is landing on the model-b EPP (or vice versa), the
 HTTPRoute header value doesn't match what BBR is emitting. Check:
 
 ```bash
-kubectl get httproute model-a -o yaml | grep -A2 'X-Gateway-Base-Model-Name'
+kubectl get httproute model-a -o yaml | grep -A2 'X-Gateway-Model-Name'
 kubectl logs -l app=body-based-router | grep -i header
 ```
 

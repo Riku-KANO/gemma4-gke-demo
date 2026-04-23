@@ -278,7 +278,11 @@ spec:
         value: /
       headers:
         - type: Exact
-          name: X-Gateway-Base-Model-Name
+          # GKE's Body-Based Router injects the raw `model` field from the
+          # request body into `X-Gateway-Model-Name`. We match on that
+          # directly — no base-model mapping ConfigMap required (which is
+          # what `X-Gateway-Base-Model-Name` would need).
+          name: X-Gateway-Model-Name
           value: __MODEL_ID_LARGE__
 ---
 # Source: inferencepool/templates/gke.yaml

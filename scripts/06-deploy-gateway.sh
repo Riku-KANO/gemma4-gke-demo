@@ -16,11 +16,11 @@ tmp_small="$(mktemp)"
 tmp_large="$(mktemp)"
 trap 'rm -f "$tmp_small" "$tmp_large"' EXIT
 
-log "Rendering pool-small with X-Gateway-Base-Model-Name=$MODEL_ID_SMALL..."
+log "Rendering pool-small with X-Gateway-Model-Name=$MODEL_ID_SMALL..."
 sed "s|__MODEL_ID_SMALL__|${MODEL_ID_SMALL}|g" \
   "$ROOT_DIR/manifests/gateway/pool-small.yaml" > "$tmp_small"
 
-log "Rendering pool-large with X-Gateway-Base-Model-Name=$MODEL_ID_LARGE..."
+log "Rendering pool-large with X-Gateway-Model-Name=$MODEL_ID_LARGE..."
 sed "s|__MODEL_ID_LARGE__|${MODEL_ID_LARGE}|g" \
   "$ROOT_DIR/manifests/gateway/pool-large.yaml" > "$tmp_large"
 

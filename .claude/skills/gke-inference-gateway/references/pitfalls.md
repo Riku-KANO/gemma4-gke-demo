@@ -46,7 +46,9 @@ dispatched by the GKE-managed endpoint picker; that pattern is gone.
 
 1. Deploy BBR (`helm template` the `body-based-routing` chart for GKE)
 2. Make sure `GCPRoutingExtension` targets your Gateway
-3. Rewrite HTTPRoute(s) with `matches.headers` on `X-Gateway-Base-Model-Name`
+3. Rewrite HTTPRoute(s) with `matches.headers` on `X-Gateway-Model-Name`
+   (or `X-Gateway-Base-Model-Name` if you need LoRA-to-base mapping —
+   see pitfall #6)
 4. Optionally keep `InferenceObjective` for priority signaling
 
 See `multi-model-recipe.md` for the full worked example.
@@ -107,22 +109,47 @@ Or rename your Gateway to `inference-gateway`.
 
 ## 6. Wrong header name on HTTPRoute
 
-**Symptom:** BBR is running (`kubectl logs -l app=body-based-router`
-shows it extracted the model name correctly), but requests still don't
-route.
+GKE's BBR emits **two** headers and they do different things. Pick the
+right one or the route match silently fails with 404.
 
-**Common wrong values seen in tutorials:**
-- `X-Gateway-Model-Name` — this header IS set by BBR's
-  `model-extractor` plugin, but it's the RAW model string. Use the
-  `-Base-` variant.
-- `X-Base-Model-Name` — missing the `X-Gateway-` prefix.
+| Header | Set by | Needs ConfigMap? | Match against |
+|---|---|---|---|
+| `X-Gateway-Model-Name` | BBR plugin `body-field-to-header:model-extractor` | No — always set if body has `model` | The raw OpenAI `model` string the client sent |
+| `X-Gateway-Base-Model-Name` | BBR plugin `base-model-to-header:base-model-mapper` | **Yes** — needs a ConfigMap labelled `inference.networking.k8s.io/bbr-managed: "true"` that maps model/adapter names to a base | The base-model identifier from the mapping |
 
-**Correct header:** `X-Gateway-Base-Model-Name` (set by BBR's
-`base-model-to-header:base-model-mapper` plugin).
+**Default choice:** Match on `X-Gateway-Model-Name`. It requires no
+extra state and is what the GKE "Configure Body-Based Routing" docs
+show.
 
-**Fix:** HTTPRoute `matches.headers[0].name` must be exactly
-`X-Gateway-Base-Model-Name`. `type: Exact` is required for model
-matching; `RegularExpression` works but is slower.
+**Use `X-Gateway-Base-Model-Name` only if** you're serving a base model
+with multiple LoRA adapters and need all adapter names to route to the
+same pool. Then you also ship a `bbr-managed` ConfigMap per base:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-model-adapters
+  labels:
+    inference.networking.k8s.io/bbr-managed: "true"
+data:
+  baseModel: my-base-model-id
+  adapters: |
+    - lora-adapter-1
+    - lora-adapter-2
+```
+
+**Symptom when wrong:** BBR logs confirm the header was set, but every
+request 404s from the Gateway. Likely cause: HTTPRoute matches on the
+`-Base-` variant but no `bbr-managed` ConfigMap exists, so BBR never
+sets that header.
+
+**Symptom of `X-Base-Model-Name` (missing prefix):** also a 404, but
+BBR never writes that header at all. Typo in tutorials — the `X-Gateway-`
+prefix is required.
+
+**Fix:** Match on `X-Gateway-Model-Name` with `type: Exact`. Use
+`RegularExpression` only if you need a range (slower; avoid).
 
 ## 7. `requestBodySendMode` not set to streaming
 
@@ -211,7 +238,7 @@ but no HTTPRoute matched.
 kubectl logs -l app=body-based-router --tail=20
 
 # What are the HTTPRoute header values?
-kubectl get httproute -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.rules[0].matches[0].headers[?(@.name=="X-Gateway-Base-Model-Name")].value}{"\n"}{end}'
+kubectl get httproute -o jsonpath='{range .items[*]}{.metadata.name}{": "}{.spec.rules[0].matches[0].headers[?(@.name=="X-Gateway-Model-Name")].value}{"\n"}{end}'
 ```
 
 **Fix:** The client's `model` string must exactly match an HTTPRoute

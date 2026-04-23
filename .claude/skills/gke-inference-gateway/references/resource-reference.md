@@ -114,13 +114,13 @@ spec:
       headers:
       # BBR sets this header based on the request body's `model` field.
       - type: Exact
-        name: X-Gateway-Base-Model-Name
+        name: X-Gateway-Model-Name
         value: my-model-id
 ```
 
 For multi-model setups, create one HTTPRoute per pool, all with
 `parentRef` pointing at the same Gateway, each matching a different
-`X-Gateway-Base-Model-Name` value.
+`X-Gateway-Model-Name` value.
 
 ---
 
@@ -188,7 +188,7 @@ spec:
 ```
 
 If BBR isn't running or this extension isn't accepted, clients will
-not have `X-Gateway-Base-Model-Name` set, so HTTPRoute header matches
+not have `X-Gateway-Model-Name` set, so HTTPRoute header matches
 will never match and requests will return 404.
 
 ---
@@ -289,7 +289,7 @@ worked example):
 
 | Old (InferenceModel) | New (equivalent) |
 |---|---|
-| `spec.modelName: "x"` | BBR plugin + HTTPRoute `headers: [{name: X-Gateway-Base-Model-Name, value: "x"}]` |
+| `spec.modelName: "x"` | BBR plugin + HTTPRoute `headers: [{name: X-Gateway-Model-Name, value: "x"}]` |
 | `spec.criticality: Critical` | `InferenceObjective.spec.priority: <high-number>` (optional) |
 | `spec.poolRef.name: p` | HTTPRoute `backendRefs: [{group: inference.networking.k8s.io, kind: InferencePool, name: p}]` |
 

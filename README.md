@@ -21,7 +21,7 @@ Stack: **Gemma** on **vLLM**, **GKE Inference Gateway** (`InferencePool v1`,
 ```
              ┌─────────────────────────────────────────────────────┐
   client ──▶ │  GKE Inference Gateway                              │
-             │  ├─ BBR (reads body.model → X-Gateway-Base-Model-Name) │
+             │  ├─ BBR (reads body.model → X-Gateway-Model-Name) │
              │  └─ two HTTPRoutes matching on that header          │
              └───────────┬──────────────────┬────────────────────────┘
                          │ header=SMALL     │ header=LARGE
@@ -122,7 +122,9 @@ file contains a regenerate recipe at the top.
 1. Both HF model IDs (`MODEL_ID_SMALL`, `MODEL_ID_LARGE`) must be real
    repos on huggingface.co/google — placeholders follow the Gemma 2/3
    naming pattern.
-2. Correct vLLM `--tool-call-parser` for Gemma 4 (currently `hermes`).
+2. vLLM `--tool-call-parser=gemma4` (and matching
+   `--chat-template=examples/tool_chat_template_gemma4.jinja`) is set.
+   If a newer vLLM renames the parser, bump it here.
 3. Gateway API Inference Extension release tag: `03-install-gateway-crds.sh`
    pins the CRDs to `v1.5.0`, and `manifests/gateway/{bbr,pool-*}.yaml`
    pin BBR (`v20260418-conformancev1.5.0`) and EPP (`v1.5.0`). Bump both

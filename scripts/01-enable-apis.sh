@@ -8,7 +8,11 @@ gcloud services enable \
   compute.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
+  networkservices.googleapis.com \
   --project="$PROJECT_ID"
+# networkservices.googleapis.com is required by the GKE Inference Gateway —
+# GCPRoutingExtension (used to attach BBR to the Gateway) is backed by
+# Service Extensions, which lives under the Network Services API.
 
 log "Creating Artifact Registry repo '$AR_REPO' in $REGION (if missing)..."
 if ! gcloud artifacts repositories describe "$AR_REPO" \

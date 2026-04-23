@@ -45,7 +45,11 @@ spec:
             - --host=0.0.0.0
             - --port=8000
             - --enable-auto-tool-choice
-            - --tool-call-parser=hermes
+            # Gemma 4's tool-call format uses custom <|tool_call>...<tool_call|>
+            # tokens — the `hermes` parser (Hermes JSON) won't recognize them.
+            # The dedicated `gemma4` parser ships with the vLLM image.
+            - --tool-call-parser=gemma4
+            - --chat-template=examples/tool_chat_template_gemma4.jinja
             - --max-model-len=8192
             - --gpu-memory-utilization=0.90
             # Enable prefix cache so the Inference Gateway's prefix-aware

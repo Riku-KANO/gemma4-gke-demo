@@ -1,7 +1,7 @@
 # Body-Based Router (BBR) extension for GKE Inference Gateway.
 #
 # Reads the OpenAI `model` field from the request body and sets
-# `X-Gateway-Base-Model-Name` so HTTPRoute can dispatch between pools.
+# `X-Gateway-Model-Name` so HTTPRoute can dispatch between pools.
 # Wired to the Gateway via a GCPRoutingExtension (GKE-specific).
 #
 # Regenerate with:

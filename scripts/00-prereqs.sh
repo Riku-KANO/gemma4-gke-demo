@@ -55,8 +55,10 @@ cat <<EOF
  2. HF license: visit BOTH model pages in a browser while signed in
     as the account that owns HF_TOKEN and click "Accept license".
 
- 3. vLLM --tool-call-parser for Gemma 4: the manifests use "hermes"
-    as a placeholder. Check vLLM docs for the Gemma-4-specific parser.
+ 3. vLLM --tool-call-parser for Gemma 4: the manifests set "gemma4"
+    with --chat-template=examples/tool_chat_template_gemma4.jinja
+    (both ship in the pinned vllm/vllm-openai image). Bump if vLLM
+    renames the parser in a future release.
 
  4. GKE Inference Extension release: 03-install-gateway-crds.sh is the
     source of truth for the pinned version. Check against the upstream

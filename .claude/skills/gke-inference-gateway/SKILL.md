@@ -71,7 +71,7 @@ Gateway (receives request)
       │
       ▼
 BBR ext-proc (reads request body, finds `model` field,
-              sets header X-Gateway-Base-Model-Name)
+              sets header X-Gateway-Model-Name)
       │
       ▼
 HTTPRoute rule matches on that header (Exact match)
@@ -84,7 +84,7 @@ On GKE, BBR is wired to the Gateway via a `GCPRoutingExtension`
 (`networking.gke.io/v1`) — a GKE-specific CRD that sets up ext-proc for
 the Gateway. The BBR itself is a Deployment + Service + RBAC.
 
-**The HTTPRoute header name is `X-Gateway-Base-Model-Name`**, set by BBR's
+**The HTTPRoute header name is `X-Gateway-Model-Name`**, set by BBR's
 `base-model-to-header:base-model-mapper` plugin. HTTPRoute matches this
 header with `type: Exact`.
 
@@ -145,7 +145,7 @@ For 2+ models behind a single Gateway endpoint, you need:
    - Model-serving Deployment + Service (vLLM, TGI, etc.)
    - EPP Deployment + Service + ConfigMap + RBAC
    - `InferencePool` referencing the EPP
-   - `HTTPRoute` with `parentRef` → the Gateway and `matches.headers` → `X-Gateway-Base-Model-Name` → the model's name. `backendRefs` → the `InferencePool`.
+   - `HTTPRoute` with `parentRef` → the Gateway and `matches.headers` → `X-Gateway-Model-Name` → the model's name. `backendRefs` → the `InferencePool`.
    - (GKE optional) `GCPBackendPolicy` for timeout/logging, `HealthCheckPolicy` for the EPP
 4. **Optional**: `InferenceObjective` per pool for priority signaling
 
@@ -220,7 +220,7 @@ When something isn't working, check in this order:
 - **EPP (Endpoint Picker)**: a Deployment + Service implementing gRPC
   ext-proc. The Gateway calls EPP to pick the best pod within the pool.
 - **BBR (Body-Based Router)**: a Deployment + Service that reads the
-  request body and sets routing headers (`X-Gateway-Base-Model-Name`).
+  request body and sets routing headers (`X-Gateway-Model-Name`).
   Attached to the Gateway as an ext-proc via `GCPRoutingExtension` on GKE.
 - **InferenceObjective**: alpha CRD carrying request priority + poolRef.
   Optional. Not a dispatcher.
